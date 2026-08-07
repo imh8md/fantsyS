@@ -192,6 +192,10 @@
   .auth-tab{flex:1;font-family:inherit;font-weight:800;font-size:14px;cursor:pointer;padding:11px;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--muted);transition:.15s}
   .auth-tab.active{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
   .auth-err{width:100%;max-width:340px;color:var(--red);font-size:12.5px;font-weight:700;margin:2px 0 8px;min-height:16px;text-align:center}
+  .news-item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+  .news-title{font-size:15px;font-weight:900;color:var(--text);line-height:1.4}
+  .news-date{font-size:11px;font-weight:700;color:var(--accent);margin:4px 0 8px}
+  .news-body{font-size:13.5px;font-weight:600;color:var(--muted);line-height:1.8}
   .head-inner .score-chip{margin-inline-start:10px}
 
   .banner{background:rgba(107,148,196,.12);border:1px solid rgba(107,148,196,.4);color:var(--text);border-radius:12px;padding:10px 13px;font-size:12px;font-weight:700;margin:0 0 14px;line-height:1.6}
@@ -334,6 +338,12 @@
     <div class="note"><b>الفكرة:</b> تختار أولاً نوع النتيجة (فوز / تعادل / خسارة) وتاخذ نقطتين لو صحّت. وإذا حبيت نقاطاً أكثر، أضف النتيجة الدقيقة — لو ضبطت الأرقام تاخذ ٥ نقاط كاملة. التعادل زيّه زي الفوز تماماً في النقاط.</div>
   </section>
 
+  <!-- ===== NEWS ===== -->
+  <section class="panel" id="news-panel">
+    <div class="section-title">الأخبار <span class="hint">الأحدث أولاً</span></div>
+    <div id="news-list"></div>
+  </section>
+
   <!-- ===== ADMIN ===== -->
   <section class="panel" id="admin-panel">
     <div class="section-title">لوحة الإدارة <span class="hint">للمشرف فقط</span></div>
@@ -388,6 +398,17 @@
         <h3>⚽ المباريات والنتائج</h3>
         <div id="adm-fixtures"></div>
       </div>
+
+      <div class="adm-card">
+        <h3>📰 الأخبار</h3>
+        <input id="an-title" class="adm-in" placeholder="عنوان الخبر" style="width:100%;margin-bottom:8px">
+        <textarea id="an-body" class="adm-in" placeholder="نص الخبر" rows="3" style="width:100%;resize:vertical;margin-bottom:8px"></textarea>
+        <div class="adm-row">
+          <button id="an-add" class="adm-btn">نشر الخبر</button>
+          <button id="an-cancel" class="adm-btn sec" style="display:none">إلغاء</button>
+        </div>
+        <div id="adm-news" style="margin-top:10px"></div>
+      </div>
     </div>
   </section>
 
@@ -398,6 +419,7 @@
   <button class="navbtn active" data-tab="matches-panel"><span class="ic">⚽</span><span class="lb">المباريات</span></button>
   <button class="navbtn" data-tab="mine-panel"><span class="ic">📋</span><span class="lb">توقعاتي</span></button>
   <button class="navbtn" data-tab="board-panel"><span class="ic">🏆</span><span class="lb">الترتيب</span></button>
+  <button class="navbtn" data-tab="news-panel"><span class="ic">📰</span><span class="lb">الأخبار</span></button>
   <button class="navbtn" data-tab="rules-panel"><span class="ic">📖</span><span class="lb">القوانين</span></button>
 </nav>
 
@@ -529,6 +551,9 @@ function makeFirebaseStore(){
     }); },
     onPlayers(cb){ return onSnapshot(col('players'), s => cb(s.docs.map(d => ({uid:d.id, ...d.data()})))); },
     onAllPreds(cb){ return onSnapshot(col('predictions'), s => cb(s.docs.map(d => d.data()))); },
+    onNews(cb){ return onSnapshot(col('news'), s => cb(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)))); },
+    async saveNews(n){ const id = n.id || ('n_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); await setDoc(doc(db,'news',id), { title:n.title, body:n.body, createdAt: n.createdAt || Date.now() }, {merge:true}); return id; },
+    async deleteNews(id){ await deleteDoc(doc(db,'news',id)); },
     async upsertFixture(f){
       const id = f.id || ('fx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6));
       await setDoc(doc(db,'fixtures',id), stripId(f), {merge:true}); return id;
@@ -573,6 +598,7 @@ function makeLocalStore(){
   const getFixtures = () => Object.entries(load(K.fixtures,{})).map(([id,f]) => ({id, ...f}));
   const getAllPreds = () => Object.values(load(K.preds,{}));
   const getPlayers  = () => Object.entries(load(K.players,{})).map(([id,p]) => ({uid:id, ...p}));
+  const getNews     = () => Object.entries(load('saq_news',{})).map(([id,n]) => ({id, ...n})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const pushFx = () => subs.fixtures.forEach(cb => cb(getFixtures()));
   const pushPl = () => subs.players.forEach(cb => cb(getPlayers()));
   const pushPr = () => { const mine={}; getAllPreds().forEach(p=>{ if(p.uid===uid) mine[p.fixtureId]=p; }); subs.preds.forEach(cb=>cb(mine)); };
@@ -600,6 +626,9 @@ function makeLocalStore(){
     onMyPreds(cb){ subs.preds.push(cb); const mine={}; getAllPreds().forEach(p=>{if(p.uid===uid)mine[p.fixtureId]=p;}); cb(mine); return ()=>{}; },
     onPlayers(cb){ subs.players.push(cb); cb(getPlayers()); return ()=>{}; },
     onAllPreds(cb){ subs.allpreds.push(cb); cb(getAllPreds()); return ()=>{}; },
+    onNews(cb){ (subs.news=subs.news||[]).push(cb); cb(getNews()); return ()=>{}; },
+    async saveNews(n){ const all=load('saq_news',{}); const id=n.id||('n_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); all[id]={title:n.title, body:n.body, createdAt:n.createdAt||Date.now()}; save('saq_news',all); (subs.news||[]).forEach(cb=>cb(getNews())); return id; },
+    async deleteNews(id){ const all=load('saq_news',{}); delete all[id]; save('saq_news',all); (subs.news||[]).forEach(cb=>cb(getNews())); },
     async upsertFixture(f){ const all=load(K.fixtures,{}); const id=f.id||('fx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); all[id]=stripId(f); save(K.fixtures,all); pushFx(); return id; },
     async deleteFixture(id){ const all=load(K.fixtures,{}); delete all[id]; save(K.fixtures,all); pushFx(); },
     async setResult(id,h,a){ const all=load(K.fixtures,{}); if(all[id]){ all[id].status='finished'; all[id].resultH=h; all[id].resultA=a; save(K.fixtures,all); } pushFx(); },
@@ -625,6 +654,7 @@ const state = {
   fixtures: [],
   preds: {},          // توقعاتي: fixtureId -> pred
   allPreds: [],       // كل التوقعات (لحساب الترتيب على الجهاز)
+  news: [],
   players: [],        // الأسماء فقط
   curLg:'all',
   curBoard:'all',
@@ -871,6 +901,61 @@ function renderMyScore(){
   if(el) el.textContent = AR(pts);
 }
 
+/* ============================================================
+   الأخبار
+   ============================================================ */
+const escHtml = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function newsDate(ms){
+  const d = new Date(ms||Date.now());
+  return d.toLocaleDateString('ar-SA',{day:'numeric',month:'long'}) + ' · ' + d.toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});
+}
+function renderNews(){
+  const box = document.getElementById('news-list'); if(!box) return;
+  if(!state.news.length){ box.innerHTML = `<div class="empty"><div class="big">📰</div><p>لا أخبار بعد.<br>تابعنا لكل جديد!</p></div>`; return; }
+  box.innerHTML = state.news.map(n => `<div class="news-item">
+    <div class="news-title">${escHtml(n.title)}</div>
+    <div class="news-date">${newsDate(n.createdAt)}</div>
+    <div class="news-body">${escHtml(n.body).replace(/\n/g,'<br>')}</div>
+  </div>`).join('');
+}
+let editingNewsId = null;
+function renderAdminNews(){
+  const box = document.getElementById('adm-news'); if(!box) return;
+  if(!state.news.length){ box.innerHTML = '<p style="color:var(--muted);font-size:12px;font-weight:700">لا أخبار منشورة.</p>'; return; }
+  box.innerHTML = state.news.map(n => `<div class="adm-fx" data-nid="${n.id}">
+    <div class="t">${escHtml(n.title)}</div>
+    <div class="meta">${newsDate(n.createdAt)}</div>
+    <div class="adm-row">
+      <button class="adm-btn sec" data-act="edit">تعديل</button>
+      <button class="adm-btn danger" data-act="del">حذف</button>
+    </div>
+  </div>`).join('');
+  box.querySelectorAll('.adm-fx').forEach(row => {
+    const nid = row.dataset.nid, n = state.news.find(x=>x.id===nid);
+    row.querySelector('[data-act="edit"]').onclick = () => {
+      editingNewsId = nid;
+      document.getElementById('an-title').value = n.title||'';
+      document.getElementById('an-body').value = n.body||'';
+      document.getElementById('an-add').textContent = 'حفظ التعديل';
+      document.getElementById('an-cancel').style.display = '';
+      document.getElementById('an-title').scrollIntoView({behavior:'smooth',block:'center'});
+    };
+    row.querySelector('[data-act="del"]').onclick = async () => { if(confirm('حذف الخبر؟')) await store.deleteNews(nid); };
+  });
+}
+function bindAdminNews(){
+  const clear = () => { editingNewsId=null; document.getElementById('an-title').value=''; document.getElementById('an-body').value=''; document.getElementById('an-add').textContent='نشر الخبر'; document.getElementById('an-cancel').style.display='none'; };
+  document.getElementById('an-add').onclick = async () => {
+    const title = document.getElementById('an-title').value.trim();
+    const body = document.getElementById('an-body').value.trim();
+    if(!title){ alert('أدخل عنوان الخبر'); return; }
+    const createdAt = editingNewsId ? (state.news.find(x=>x.id===editingNewsId)||{}).createdAt : Date.now();
+    await store.saveNews({ id: editingNewsId, title, body, createdAt });
+    clear();
+  };
+  document.getElementById('an-cancel').onclick = clear;
+}
+
 function updateMatchesTitle(){
   const t = document.getElementById('matches-title'); if(!t) return;
   t.innerHTML = state.curLg==='all'
@@ -927,12 +1012,13 @@ function bindAdmin(){
       state.admin = true; sessionStorage.setItem('saq_admin','1');
       document.getElementById('adm-lock').style.display='none';
       document.getElementById('adm-body').style.display='block';
-      renderAdminFixtures();
+      renderAdminFixtures(); renderAdminNews();
     } else {
       document.getElementById('adm-code-err').style.display='block';
     }
   };
   document.getElementById('adm-unlock').onclick = unlock;
+  bindAdminNews();
   document.getElementById('adm-code').addEventListener('keydown', e => { if(e.key==='Enter') unlock(); });
 
   document.getElementById('af-add').onclick = async () => {
@@ -958,6 +1044,7 @@ function bindAdmin(){
     state.admin = true;
     document.getElementById('adm-lock').style.display='none';
     document.getElementById('adm-body').style.display='block';
+    renderAdminNews();
   }
 }
 
@@ -1055,6 +1142,7 @@ function startApp(){
   store.onMyPreds(mine => { state.preds = mine; renderMatches(); renderMine(); });
   store.onAllPreds(list => { state.allPreds = list; renderBoard(); renderMyScore(); });
   store.onPlayers(list => { state.players = list; renderBoard(); });
+  store.onNews(list => { state.news = list; renderNews(); if(state.admin) renderAdminNews(); });
 }
 store.onAuth(async (user) => {
   const sp = document.getElementById('splash');
