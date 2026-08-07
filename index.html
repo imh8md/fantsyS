@@ -492,8 +492,11 @@ function makeFirebaseStore(){
   const db   = getFirestore(app);
   let uid = null, readyRes;
   const readyP = new Promise(r => readyRes = r);
-  signInAnonymously(auth).catch(e => console.error('auth', e));
   onAuthStateChanged(auth, u => { if(u){ uid = u.uid; readyRes(uid); } });
+  signInAnonymously(auth).catch(e => {
+    console.warn('تعذّر الدخول المجهول — فعّله في Firebase Authentication. سيُستخدم معرّف محلي مؤقتاً.', e);
+    if(!uid){ uid = localStorage.getItem('saq_fb_uid') || ('u_'+Math.random().toString(36).slice(2,10)); localStorage.setItem('saq_fb_uid', uid); readyRes(uid); }
+  });
   const col = n => collection(db, n);
   return {
     mode:'firebase',
