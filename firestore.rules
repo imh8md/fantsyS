@@ -2,24 +2,32 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // القراءة متاحة للجميع (الترتيب والمباريات عامة داخل الدوري)
-    match /{document=**} {
-      allow read: if true;
+    // يجب أن يكون اللاعب داخل التطبيق (الدخول المجهول مفعّل)
+    function signedIn() { return request.auth != null; }
+
+    // القراءة متاحة لكل من هو داخل التطبيق فقط (المباريات والترتيب والأسماء)
+    match /{doc=**} {
+      allow read: if signedIn();
     }
 
-    // اللاعبون: كل جهاز يكتب سجلّه الخاص فقط
+    // اللاعب: يكتب سجلّ اسمه هو فقط
     match /players/{uid} {
-      allow write: if true;
+      allow write: if signedIn() && request.auth.uid == uid;
     }
 
     // التوقعات: معرّف الوثيقة = uid__fixtureId
+    // صاحبها فقط يكتبها، وقبل بداية المباراة فقط، ولا يمكن حذفها
     match /predictions/{pid} {
-      allow write: if true;
+      allow create, update: if signedIn()
+        && pid.split('__')[0] == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.time.toMillis() < get(/databases/$(database)/documents/fixtures/$(request.resource.data.fixtureId)).data.kickoff;
+      allow delete: if false;
     }
 
-    // المباريات والنتائج (محمية عملياً برمز لوحة الإدارة في الواجهة)
+    // المباريات والنتائج: أي مستخدم داخل التطبيق (محمية عملياً برمز لوحة الإدارة في الواجهة)
     match /fixtures/{id} {
-      allow write: if true;
+      allow write: if signedIn();
     }
   }
 }

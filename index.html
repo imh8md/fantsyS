@@ -364,7 +364,6 @@
         <h3>🛠️ أدوات</h3>
         <div class="adm-row">
           <button id="adm-seed" class="adm-btn sec">تعبئة مباريات تجريبية</button>
-          <button id="adm-recalc" class="adm-btn sec">إعادة احتساب النقاط</button>
         </div>
       </div>
 
@@ -509,6 +508,7 @@ function makeFirebaseStore(){
       const mine = {}; s.docs.forEach(d => { const v=d.data(); if(v.uid===uid) mine[v.fixtureId]=v; }); cb(mine);
     }); },
     onPlayers(cb){ return onSnapshot(col('players'), s => cb(s.docs.map(d => ({uid:d.id, ...d.data()})))); },
+    onAllPreds(cb){ return onSnapshot(col('predictions'), s => cb(s.docs.map(d => d.data()))); },
     async upsertFixture(f){
       const id = f.id || ('fx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6));
       await setDoc(doc(db,'fixtures',id), stripId(f), {merge:true}); return id;
@@ -516,7 +516,6 @@ function makeFirebaseStore(){
     async deleteFixture(id){ await deleteDoc(doc(db,'fixtures',id)); },
     async setResult(id,h,a){
       await setDoc(doc(db,'fixtures',id), {status:'finished', resultH:h, resultA:a}, {merge:true});
-      await this.recompute();
     },
     async recompute(){
       const [fxs, prs, pls] = await Promise.all([getDocs(col('fixtures')), getDocs(col('predictions')), getDocs(col('players'))]);
@@ -550,25 +549,27 @@ function makeLocalStore(){
   const save = (k,v) => localStorage.setItem(k, JSON.stringify(v));
   let uid = load(K.uid, null);
   if(!uid){ uid = 'u_'+Math.random().toString(36).slice(2,10); save(K.uid, uid); }
-  const subs = {fixtures:[], preds:[], players:[]};
+  const subs = {fixtures:[], preds:[], players:[], allpreds:[]};
   const getFixtures = () => Object.entries(load(K.fixtures,{})).map(([id,f]) => ({id, ...f}));
   const getAllPreds = () => Object.values(load(K.preds,{}));
   const getPlayers  = () => Object.entries(load(K.players,{})).map(([id,p]) => ({uid:id, ...p}));
   const pushFx = () => subs.fixtures.forEach(cb => cb(getFixtures()));
   const pushPl = () => subs.players.forEach(cb => cb(getPlayers()));
   const pushPr = () => { const mine={}; getAllPreds().forEach(p=>{ if(p.uid===uid) mine[p.fixtureId]=p; }); subs.preds.forEach(cb=>cb(mine)); };
+  const pushAll = () => subs.allpreds.forEach(cb => cb(getAllPreds()));
   return {
     mode:'local',
     get uid(){ return uid; },
     ready: () => Promise.resolve(uid),
     async saveName(name){ const pl=load(K.players,{}); pl[uid]={...(pl[uid]||{}), name, updatedAt:Date.now()}; save(K.players,pl); pushPl(); },
-    async savePrediction(p){ const all=load(K.preds,{}); all[uid+'__'+p.fixtureId]={...p}; save(K.preds,all); pushPr(); },
+    async savePrediction(p){ const all=load(K.preds,{}); all[uid+'__'+p.fixtureId]={...p}; save(K.preds,all); pushPr(); pushAll(); },
     onFixtures(cb){ subs.fixtures.push(cb); cb(getFixtures()); return ()=>{}; },
     onMyPreds(cb){ subs.preds.push(cb); const mine={}; getAllPreds().forEach(p=>{if(p.uid===uid)mine[p.fixtureId]=p;}); cb(mine); return ()=>{}; },
     onPlayers(cb){ subs.players.push(cb); cb(getPlayers()); return ()=>{}; },
+    onAllPreds(cb){ subs.allpreds.push(cb); cb(getAllPreds()); return ()=>{}; },
     async upsertFixture(f){ const all=load(K.fixtures,{}); const id=f.id||('fx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); all[id]=stripId(f); save(K.fixtures,all); pushFx(); return id; },
     async deleteFixture(id){ const all=load(K.fixtures,{}); delete all[id]; save(K.fixtures,all); pushFx(); },
-    async setResult(id,h,a){ const all=load(K.fixtures,{}); if(all[id]){ all[id].status='finished'; all[id].resultH=h; all[id].resultA=a; save(K.fixtures,all); } await this.recompute(); pushFx(); },
+    async setResult(id,h,a){ const all=load(K.fixtures,{}); if(all[id]){ all[id].status='finished'; all[id].resultH=h; all[id].resultA=a; save(K.fixtures,all); } pushFx(); },
     async recompute(){
       const agg = aggregate(getFixtures(), getAllPreds());
       const pl = load(K.players,{});
@@ -590,7 +591,8 @@ const state = {
   name: localStorage.getItem('saq_name') || '',
   fixtures: [],
   preds: {},          // توقعاتي: fixtureId -> pred
-  players: [],
+  allPreds: [],       // كل التوقعات (لحساب الترتيب على الجهاز)
+  players: [],        // الأسماء فقط
   curLg:'all',
   curBoard:'all',
   admin:false
@@ -789,16 +791,21 @@ function renderMine(){
    ============================================================ */
 function boardRows(){
   const meId = state.uid;
-  let rows = state.players.map(p => {
-    const pts = state.curBoard==='all' ? (p.pts||0) : (p.byLeague?.[state.curBoard]?.pts || 0);
-    const exact = state.curBoard==='all' ? (p.exact||0) : (p.byLeague?.[state.curBoard]?.exact || 0);
-    return { uid:p.uid, nm:p.name||'لاعب', pts, exact, you:p.uid===meId };
+  // النقاط تُحسب على الجهاز من التوقعات والنتائج (بدون كتابة نقاط الآخرين)
+  const agg = aggregate(state.fixtures, state.allPreds);
+  const nameOf = {}; state.players.forEach(p => { if(p.name) nameOf[p.uid]=p.name; });
+  const uids = new Set([...Object.keys(agg), ...Object.keys(nameOf)]);
+  if(meId) uids.add(meId);
+  let rows = [...uids].map(uid => {
+    const a = agg[uid];
+    const pts   = a ? (state.curBoard==='all' ? a.pts   : (a.byLeague[state.curBoard]?.pts   || 0)) : 0;
+    const exact = a ? (state.curBoard==='all' ? a.exact : (a.byLeague[state.curBoard]?.exact || 0)) : 0;
+    const nm = uid===meId ? (state.name||'أنت') : (nameOf[uid] || a?.name || 'لاعب');
+    return { uid, nm, pts, exact, you: uid===meId };
   });
-  // في ترتيب الدوري: أظهر من له نقاط في ذلك الدوري + أنت دائماً
-  if(state.curBoard!=='all') rows = rows.filter(r => r.pts>0 || r.you);
+  if(state.curBoard==='all') rows = rows.filter(r => r.pts>0 || r.you || nameOf[r.uid]);
+  else rows = rows.filter(r => r.pts>0 || r.you);
   rows.sort((a,b) => b.pts - a.pts);
-  // تأكد من ظهورك حتى لو لم يكن لك سجل لاعب بعد
-  if(meId && !rows.find(r => r.you)) rows.push({uid:meId, nm:(state.name||'أنت'), pts:0, exact:0, you:true});
   return rows;
 }
 
@@ -825,9 +832,10 @@ function renderBoard(){
 }
 
 function renderMyScore(){
-  const me = state.players.find(p => p.uid===state.uid);
+  const agg = aggregate(state.fixtures, state.allPreds);
+  const pts = agg[state.uid]?.pts || 0;
   const el = document.getElementById('my-score');
-  if(el) el.textContent = AR(me ? me.pts||0 : 0);
+  if(el) el.textContent = AR(pts);
 }
 
 function updateMatchesTitle(){
@@ -912,7 +920,6 @@ function bindAdmin(){
     const done = await store.seed();
     alert(done ? 'تم تعبئة المباريات التجريبية ✔' : 'يوجد مباريات مسبقاً — لم يُضف شيء.');
   };
-  document.getElementById('adm-recalc').onclick = async () => { await store.recompute(); alert('أُعيد احتساب النقاط ✔'); };
 
   if(sessionStorage.getItem('saq_admin')==='1'){
     state.admin = true;
@@ -979,9 +986,10 @@ greet();
 store.ready().then(async uid => {
   state.uid = uid;
   if(!USE_FB) await store.seed();               // تعبئة تلقائية في الوضع المحلي
-  store.onFixtures(list => { state.fixtures = list; renderMatches(); renderMine(); if(state.admin) renderAdminFixtures(); });
+  store.onFixtures(list => { state.fixtures = list; renderMatches(); renderMine(); renderBoard(); renderMyScore(); if(state.admin) renderAdminFixtures(); });
   store.onMyPreds(mine => { state.preds = mine; renderMatches(); renderMine(); });
-  store.onPlayers(list => { state.players = list; renderBoard(); renderMyScore(); });
+  store.onAllPreds(list => { state.allPreds = list; renderBoard(); renderMyScore(); });
+  store.onPlayers(list => { state.players = list; renderBoard(); });
   if(state.name) await store.saveName(state.name);
 });
 
