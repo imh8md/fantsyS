@@ -1,0 +1,31 @@
+name: sync-fixtures
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # كل ٦ ساعات
+  workflow_dispatch: {}      # تشغيل يدوي من تبويب Actions
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-fixtures
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: تثبيت الاعتماديات
+        working-directory: scripts
+        run: npm install --no-audit --no-fund
+      - name: مزامنة المباريات
+        working-directory: scripts
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node sync.mjs

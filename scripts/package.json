@@ -1,0 +1,9 @@
+{
+  "name": "fantasy-sync",
+  "private": true,
+  "type": "module",
+  "description": "مزامنة جداول المباريات والنتائج إلى Firestore",
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}
