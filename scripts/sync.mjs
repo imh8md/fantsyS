@@ -36,8 +36,8 @@ function roundAr(m, lg){
 const FINISHED = new Set(['FINISHED','AWARDED']);
 
 async function fetchComp(code){
-  const from = new Date(Date.now() - 5*86400000).toISOString().slice(0,10);
-  const to   = new Date(Date.now() + 30*86400000).toISOString().slice(0,10);
+  const from = new Date(Date.now() - 5*86400000).toISOString().slice(0,10);   // آخر ٥ أيام (نتائج)
+  const to   = new Date(Date.now() + 90*86400000).toISOString().slice(0,10);  // القادم ٣ أشهر (~٩ جولات المؤكّدة)
   const res = await fetch(`https://api.football-data.org/v4/competitions/${code}/matches?dateFrom=${from}&dateTo=${to}`,
     { headers: { 'X-Auth-Token': FD_TOKEN } });
   if (!res.ok) { console.warn(`⚠️  [${code}] HTTP ${res.status}`); return []; }
