@@ -196,6 +196,16 @@
   .news-title{font-size:15px;font-weight:900;color:var(--text);line-height:1.4}
   .news-date{font-size:11px;font-weight:700;color:var(--accent);margin:4px 0 8px}
   .news-body{font-size:13.5px;font-weight:600;color:var(--muted);line-height:1.8}
+  /* slider */
+  .slider{position:relative;overflow:hidden;border-radius:14px;margin:16px 0 4px;border:1px solid var(--line);background:var(--card-2)}
+  .slider-track{display:flex;transition:transform .45s ease}
+  .slide{min-width:100%;display:block;aspect-ratio:1024/256}
+  .slide img{width:100%;height:100%;object-fit:cover;display:block}
+  .slider-dots{position:absolute;bottom:8px;left:0;right:0;display:flex;gap:6px;justify-content:center}
+  .sdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.55);cursor:pointer;transition:.2s;box-shadow:0 0 3px rgba(0,0,0,.4)}
+  .sdot.on{background:#fff;width:18px;border-radius:4px}
+  .adm-banner-thumb{width:100%;border-radius:8px;display:block;margin-bottom:6px;aspect-ratio:1024/256;object-fit:cover;border:1px solid var(--line)}
+  .adm-btn:disabled{opacity:.4;cursor:not-allowed}
   .head-inner .score-chip{margin-inline-start:10px}
 
   .banner{background:rgba(107,148,196,.12);border:1px solid rgba(107,148,196,.4);color:var(--text);border-radius:12px;padding:10px 13px;font-size:12px;font-weight:700;margin:0 0 14px;line-height:1.6}
@@ -261,6 +271,7 @@
 <div class="wrap">
   <!-- ===== MATCHES ===== -->
   <section class="panel active" id="matches-panel">
+    <div class="slider" id="banners" dir="ltr" style="display:none"></div>
     <div class="leagues" id="leagues">
       <button class="lg active" data-lg="all">🗓️ الكل</button>
       <button class="lg" data-lg="epl">🏴 الإنجليزي</button>
@@ -409,6 +420,16 @@
         </div>
         <div id="adm-news" style="margin-top:10px"></div>
       </div>
+
+      <div class="adm-card">
+        <h3>🖼️ البنرات الإعلانية</h3>
+        <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:8px">المقاس المثالي ١٠٢٤×٢٥٦ — تُضغط تلقائياً.</div>
+        <input id="ab-file" type="file" accept="image/*" class="adm-in" style="width:100%;margin-bottom:8px">
+        <div id="ab-preview" style="display:none;margin-bottom:8px"><img class="adm-banner-thumb"></div>
+        <input id="ab-link" class="adm-in" placeholder="رابط عند الضغط (اختياري)" style="width:100%;margin-bottom:8px" inputmode="url">
+        <div class="adm-row"><button id="ab-add" class="adm-btn">إضافة البنر</button></div>
+        <div id="adm-banners" style="margin-top:10px"></div>
+      </div>
     </div>
   </section>
 
@@ -554,6 +575,9 @@ function makeFirebaseStore(){
     onNews(cb){ return onSnapshot(col('news'), s => cb(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)))); },
     async saveNews(n){ const id = n.id || ('n_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); await setDoc(doc(db,'news',id), { title:n.title, body:n.body, createdAt: n.createdAt || Date.now() }, {merge:true}); return id; },
     async deleteNews(id){ await deleteDoc(doc(db,'news',id)); },
+    onBanners(cb){ return onSnapshot(col('banners'), s => cb(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>(a.order||0)-(b.order||0)))); },
+    async saveBanner(b){ const id=b.id||('b_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); const data={}; if(b.order!==undefined)data.order=b.order; if(b.img!==undefined)data.img=b.img; if(b.link!==undefined)data.link=b.link||''; await setDoc(doc(db,'banners',id), data, {merge:true}); return id; },
+    async deleteBanner(id){ await deleteDoc(doc(db,'banners',id)); },
     async upsertFixture(f){
       const id = f.id || ('fx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6));
       await setDoc(doc(db,'fixtures',id), stripId(f), {merge:true}); return id;
@@ -599,6 +623,7 @@ function makeLocalStore(){
   const getAllPreds = () => Object.values(load(K.preds,{}));
   const getPlayers  = () => Object.entries(load(K.players,{})).map(([id,p]) => ({uid:id, ...p}));
   const getNews     = () => Object.entries(load('saq_news',{})).map(([id,n]) => ({id, ...n})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const getBanners  = () => Object.entries(load('saq_banners',{})).map(([id,b]) => ({id, ...b})).sort((a,b)=>(a.order||0)-(b.order||0));
   const pushFx = () => subs.fixtures.forEach(cb => cb(getFixtures()));
   const pushPl = () => subs.players.forEach(cb => cb(getPlayers()));
   const pushPr = () => { const mine={}; getAllPreds().forEach(p=>{ if(p.uid===uid) mine[p.fixtureId]=p; }); subs.preds.forEach(cb=>cb(mine)); };
@@ -629,6 +654,9 @@ function makeLocalStore(){
     onNews(cb){ (subs.news=subs.news||[]).push(cb); cb(getNews()); return ()=>{}; },
     async saveNews(n){ const all=load('saq_news',{}); const id=n.id||('n_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); all[id]={title:n.title, body:n.body, createdAt:n.createdAt||Date.now()}; save('saq_news',all); (subs.news||[]).forEach(cb=>cb(getNews())); return id; },
     async deleteNews(id){ const all=load('saq_news',{}); delete all[id]; save('saq_news',all); (subs.news||[]).forEach(cb=>cb(getNews())); },
+    onBanners(cb){ (subs.banners=subs.banners||[]).push(cb); cb(getBanners()); return ()=>{}; },
+    async saveBanner(b){ const all=load('saq_banners',{}); const id=b.id||('b_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); const cur=all[id]||{}; all[id]={order:b.order!==undefined?b.order:(cur.order||0), img:b.img!==undefined?b.img:cur.img, link:b.link!==undefined?(b.link||''):(cur.link||'')}; save('saq_banners',all); (subs.banners||[]).forEach(cb=>cb(getBanners())); return id; },
+    async deleteBanner(id){ const all=load('saq_banners',{}); delete all[id]; save('saq_banners',all); (subs.banners||[]).forEach(cb=>cb(getBanners())); },
     async upsertFixture(f){ const all=load(K.fixtures,{}); const id=f.id||('fx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); all[id]=stripId(f); save(K.fixtures,all); pushFx(); return id; },
     async deleteFixture(id){ const all=load(K.fixtures,{}); delete all[id]; save(K.fixtures,all); pushFx(); },
     async setResult(id,h,a){ const all=load(K.fixtures,{}); if(all[id]){ all[id].status='finished'; all[id].resultH=h; all[id].resultA=a; save(K.fixtures,all); } pushFx(); },
@@ -655,6 +683,7 @@ const state = {
   preds: {},          // توقعاتي: fixtureId -> pred
   allPreds: [],       // كل التوقعات (لحساب الترتيب على الجهاز)
   news: [],
+  banners: [],
   players: [],        // الأسماء فقط
   curLg:'all',
   curBoard:'all',
@@ -956,6 +985,98 @@ function bindAdminNews(){
   document.getElementById('an-cancel').onclick = clear;
 }
 
+/* ============================================================
+   البنرات الإعلانية (سلايدر)
+   ============================================================ */
+const escAttr = s => String(s==null?'':s).replace(/"/g,'&quot;');
+let sliderTimer = null, sliderIdx = 0;
+function renderBanners(){
+  const box = document.getElementById('banners'); if(!box) return;
+  if(!state.banners.length){ box.style.display='none'; if(sliderTimer){clearInterval(sliderTimer);sliderTimer=null;} return; }
+  box.style.display='block';
+  const slides = state.banners.map(b => b.link
+    ? `<a class="slide" href="${escAttr(b.link)}" target="_blank" rel="noopener"><img src="${b.img}" alt=""></a>`
+    : `<div class="slide"><img src="${b.img}" alt=""></div>`).join('');
+  const dots = state.banners.length>1 ? `<div class="slider-dots">${state.banners.map((_,i)=>`<span class="sdot ${i===0?'on':''}" data-i="${i}"></span>`).join('')}</div>` : '';
+  box.innerHTML = `<div class="slider-track">${slides}</div>${dots}`;
+  startSlider();
+}
+function startSlider(){
+  const track = document.querySelector('#banners .slider-track');
+  const dots = [...document.querySelectorAll('#banners .sdot')];
+  const n = state.banners.length;
+  if(sliderTimer){ clearInterval(sliderTimer); sliderTimer=null; }
+  if(!track || n===0) return;
+  sliderIdx = 0;
+  const go = i => { sliderIdx=(i+n)%n; track.style.transform=`translateX(${-sliderIdx*100}%)`; dots.forEach((d,j)=>d.classList.toggle('on',j===sliderIdx)); };
+  const reset = () => { if(sliderTimer) clearInterval(sliderTimer); if(n>1) sliderTimer=setInterval(()=>go(sliderIdx+1),4500); };
+  dots.forEach(d => d.onclick = () => { go(+d.dataset.i); reset(); });
+  go(0); reset();
+}
+
+/* معالجة الصورة: ضغط إلى ١٠٢٤×٢٥٦ JPEG */
+function processBannerImage(file){
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const W=1024, H=256, cv=document.createElement('canvas');
+        cv.width=W; cv.height=H; const ctx=cv.getContext('2d');
+        const s=Math.max(W/img.width, H/img.height), w=img.width*s, h=img.height*s;
+        ctx.drawImage(img, (W-w)/2, (H-h)/2, w, h);
+        res(cv.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = rej; img.src = e.target.result;
+    };
+    reader.onerror = rej; reader.readAsDataURL(file);
+  });
+}
+let pendingBannerImg = null;
+function renderAdminBanners(){
+  const box = document.getElementById('adm-banners'); if(!box) return;
+  if(!state.banners.length){ box.innerHTML = '<p style="color:var(--muted);font-size:12px;font-weight:700">لا بنرات.</p>'; return; }
+  box.innerHTML = state.banners.map((b,i) => `<div class="adm-fx" data-bid="${b.id}">
+    <img class="adm-banner-thumb" src="${b.img}">
+    <div class="meta">${b.link?('🔗 '+escHtml(b.link)):'بدون رابط'}</div>
+    <div class="adm-row">
+      <button class="adm-btn sec" data-act="up" ${i===0?'disabled':''}>▲</button>
+      <button class="adm-btn sec" data-act="down" ${i===state.banners.length-1?'disabled':''}>▼</button>
+      <button class="adm-btn danger" data-act="del">حذف</button>
+    </div>
+  </div>`).join('');
+  box.querySelectorAll('.adm-fx').forEach(row => {
+    const bid = row.dataset.bid, idx = state.banners.findIndex(x=>x.id===bid);
+    row.querySelector('[data-act="del"]').onclick = async () => { if(confirm('حذف البنر؟')) await store.deleteBanner(bid); };
+    const swap = async other => {
+      if(other<0 || other>=state.banners.length) return;
+      const a = state.banners[idx], b = state.banners[other];
+      const ao=a.order??idx, bo=b.order??other;
+      await Promise.all([ store.saveBanner({id:a.id, order:bo}), store.saveBanner({id:b.id, order:ao}) ]);
+    };
+    row.querySelector('[data-act="up"]').onclick = () => swap(idx-1);
+    row.querySelector('[data-act="down"]').onclick = () => swap(idx+1);
+  });
+}
+function bindAdminBanners(){
+  const fileIn = document.getElementById('ab-file');
+  fileIn.onchange = async () => {
+    const f = fileIn.files[0]; if(!f) return;
+    try{
+      pendingBannerImg = await processBannerImage(f);
+      const pv = document.getElementById('ab-preview'); pv.style.display='block'; pv.querySelector('img').src = pendingBannerImg;
+    }catch(e){ alert('تعذّر قراءة الصورة'); }
+  };
+  document.getElementById('ab-add').onclick = async () => {
+    if(!pendingBannerImg){ alert('اختر صورة أولاً'); return; }
+    const link = document.getElementById('ab-link').value.trim();
+    const maxOrder = state.banners.reduce((m,b)=>Math.max(m, b.order||0), -1);
+    await store.saveBanner({ img: pendingBannerImg, link, order: maxOrder+1 });
+    pendingBannerImg = null; fileIn.value=''; document.getElementById('ab-link').value='';
+    document.getElementById('ab-preview').style.display='none';
+  };
+}
+
 function updateMatchesTitle(){
   const t = document.getElementById('matches-title'); if(!t) return;
   t.innerHTML = state.curLg==='all'
@@ -1012,13 +1133,13 @@ function bindAdmin(){
       state.admin = true; sessionStorage.setItem('saq_admin','1');
       document.getElementById('adm-lock').style.display='none';
       document.getElementById('adm-body').style.display='block';
-      renderAdminFixtures(); renderAdminNews();
+      renderAdminFixtures(); renderAdminNews(); renderAdminBanners();
     } else {
       document.getElementById('adm-code-err').style.display='block';
     }
   };
   document.getElementById('adm-unlock').onclick = unlock;
-  bindAdminNews();
+  bindAdminNews(); bindAdminBanners();
   document.getElementById('adm-code').addEventListener('keydown', e => { if(e.key==='Enter') unlock(); });
 
   document.getElementById('af-add').onclick = async () => {
@@ -1044,7 +1165,7 @@ function bindAdmin(){
     state.admin = true;
     document.getElementById('adm-lock').style.display='none';
     document.getElementById('adm-body').style.display='block';
-    renderAdminNews();
+    renderAdminNews(); renderAdminBanners();
   }
 }
 
@@ -1143,6 +1264,7 @@ function startApp(){
   store.onAllPreds(list => { state.allPreds = list; renderBoard(); renderMyScore(); });
   store.onPlayers(list => { state.players = list; renderBoard(); });
   store.onNews(list => { state.news = list; renderNews(); if(state.admin) renderAdminNews(); });
+  store.onBanners(list => { state.banners = list; renderBanners(); if(state.admin) renderAdminBanners(); });
 }
 store.onAuth(async (user) => {
   const sp = document.getElementById('splash');
