@@ -1058,6 +1058,7 @@ function startApp(){
 }
 store.onAuth(async (user) => {
   const sp = document.getElementById('splash');
+  if(user && user.isAnonymous){ try{ await store.logout(); }catch(e){} return; }  // إخراج جلسات الضيف القديمة
   if(user){
     state.uid = store.uid;
     try{ const nm = await store.getMyName(); if(nm) state.name = nm; }catch(e){}
