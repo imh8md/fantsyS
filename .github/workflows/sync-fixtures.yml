@@ -20,12 +20,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: تثبيت الاعتماديات
-        working-directory: scripts
-        run: npm install --no-audit --no-fund
-      - name: مزامنة المباريات
-        working-directory: scripts
+      - name: مزامنة المباريات والنتائج
         env:
-          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: node sync.mjs
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+        run: node scripts/sync.mjs
