@@ -2,21 +2,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // يجب أن يكون اللاعب داخل التطبيق (الدخول المجهول مفعّل)
     function signedIn() { return request.auth != null; }
 
-    // القراءة متاحة لكل من هو داخل التطبيق فقط (المباريات والترتيب والأسماء)
-    match /{doc=**} {
-      allow read: if signedIn();
-    }
+    // القراءة لكل من هو داخل التطبيق (مسجّل دخول)
+    match /{doc=**} { allow read: if signedIn(); }
 
-    // اللاعب: يكتب سجلّ اسمه هو فقط
+    // اللاعب: يكتب سجلّ حسابه هو فقط
     match /players/{uid} {
       allow write: if signedIn() && request.auth.uid == uid;
     }
 
-    // التوقعات: معرّف الوثيقة = uid__fixtureId
-    // صاحبها فقط يكتبها، وقبل بداية المباراة فقط، ولا يمكن حذفها
+    // التوقعات: صاحبها فقط، قبل بداية المباراة، ولا تُحذف
     match /predictions/{pid} {
       allow create, update: if signedIn()
         && pid.split('__')[0] == request.auth.uid
@@ -25,9 +21,21 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // المباريات والنتائج: أي مستخدم داخل التطبيق (محمية عملياً برمز لوحة الإدارة في الواجهة)
-    match /fixtures/{id} {
-      allow write: if signedIn();
+    // توقّع الهداف: صاحبه فقط (معرّف الوثيقة = uid__league)
+    match /scorerPicks/{pid} {
+      allow write: if signedIn() && pid.split('__')[0] == request.auth.uid;
     }
+
+    // رمز جهاز الإشعارات: صاحبه فقط
+    match /fcmTokens/{uid} {
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // محتوى يُدار من لوحة الإدارة (محمي عملياً برمز الإدارة في الواجهة)
+    match /fixtures/{id}          { allow write: if signedIn(); }
+    match /news/{id}             { allow write: if signedIn(); }
+    match /banners/{id}          { allow write: if signedIn(); }
+    match /scorerCandidates/{id} { allow write: if signedIn(); }
+    match /notifications/{id}    { allow write: if signedIn(); }
   }
 }
