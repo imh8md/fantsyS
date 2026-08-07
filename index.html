@@ -502,7 +502,7 @@ function makeFirebaseStore(){
     mode:'firebase',
     get uid(){ return uid; },
     ready: () => readyP,
-    async saveName(name){ await setDoc(doc(db,'players',uid), {name, updatedAt:Date.now()}, {merge:true}); },
+    async saveName(name){ if(!uid) return; await setDoc(doc(db,'players',uid), {name, updatedAt:Date.now()}, {merge:true}); },
     async savePrediction(p){ await setDoc(doc(db,'predictions', uid+'__'+p.fixtureId), p, {merge:true}); },
     onFixtures(cb){ return onSnapshot(col('fixtures'), s => cb(s.docs.map(d => ({id:d.id, ...d.data()})))); },
     onMyPreds(cb){ return onSnapshot(col('predictions'), s => {
@@ -953,7 +953,7 @@ async function enterApp(name){
   if(name && name.trim()){
     state.name = name.trim();
     localStorage.setItem('saq_name', state.name);
-    await store.saveName(state.name);
+    store.saveName(state.name).catch(()=>{});
   }
   greet();
   const sp = document.getElementById('splash'); if(sp) sp.classList.add('hide');
