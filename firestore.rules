@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // القراءة متاحة للجميع (الترتيب والمباريات عامة داخل الدوري)
+    match /{document=**} {
+      allow read: if true;
+    }
+
+    // اللاعبون: كل جهاز يكتب سجلّه الخاص فقط
+    match /players/{uid} {
+      allow write: if true;
+    }
+
+    // التوقعات: معرّف الوثيقة = uid__fixtureId
+    match /predictions/{pid} {
+      allow write: if true;
+    }
+
+    // المباريات والنتائج (محمية عملياً برمز لوحة الإدارة في الواجهة)
+    match /fixtures/{id} {
+      allow write: if true;
+    }
+  }
+}
