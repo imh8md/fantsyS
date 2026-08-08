@@ -7,16 +7,18 @@ import admin from 'firebase-admin';
 const SA = process.env.FIREBASE_SERVICE_ACCOUNT;
 if (!SA) { console.error('❌ ناقص: FIREBASE_SERVICE_ACCOUNT'); process.exit(1); }
 
-let serviceAccount;
-try {
-  serviceAccount = JSON.parse(SA.trim());
-} catch (e) {
-  const t = SA.trim();
-  console.error('❌ FIREBASE_SERVICE_ACCOUNT ليس JSON صالحاً:', e.message);
-  console.error('تشخيص (آمن): الطول=%d، يبدأ بـ{=%s، ينتهي بـ}=%s، أول رمز=%d، مقتطف أول ٦=%j',
-    t.length, t.startsWith('{'), t.endsWith('}'), t.charCodeAt(0), t.slice(0, 6).replace(/[a-zA-Z0-9]/g, 'x'));
-  process.exit(1);
+function parseServiceAccount(raw){
+  let t = String(raw).trim();
+  if(t.charCodeAt(0) === 0xFEFF) t = t.slice(1);        // إزالة BOM إن وُجد
+  try { return JSON.parse(t); } catch (e) {}
+  // إصلاح شائع: سقوط القوس الافتتاحي/الختامي عند النسخ
+  if(!t.startsWith('{') && t.endsWith('}')){ try { return JSON.parse('{' + t); } catch (e) {} }
+  if(t.startsWith('{') && !t.endsWith('}')){ try { return JSON.parse(t + '}'); } catch (e) {} }
+  if(!t.startsWith('{') && !t.endsWith('}')){ try { return JSON.parse('{' + t + '}'); } catch (e) {} }
+  return null;
 }
+const serviceAccount = parseServiceAccount(SA);
+if(!serviceAccount){ console.error('❌ FIREBASE_SERVICE_ACCOUNT ليس JSON صالحاً — أعد لصق محتوى ملف الخدمة كاملاً في السرّ.'); process.exit(1); }
 
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = admin.firestore();
