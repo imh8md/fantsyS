@@ -20,7 +20,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: مزامنة المباريات والنتائج
+      - name: مزامنة الإنجليزي/الإسباني/أبطال أوروبا
         env:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
         run: node scripts/sync.mjs
+      - name: مزامنة الدوري السعودي (روشن)
+        run: node scripts/sync-saff.mjs
