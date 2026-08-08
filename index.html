@@ -414,6 +414,7 @@
         <h3>📰 الأخبار</h3>
         <input id="an-title" class="adm-in" placeholder="عنوان الخبر" style="width:100%;margin-bottom:8px">
         <textarea id="an-body" class="adm-in" placeholder="نص الخبر" rows="3" style="width:100%;resize:vertical;margin-bottom:8px"></textarea>
+        <label style="font-size:12px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:6px;margin-bottom:8px"><input id="an-notify" type="checkbox"> 🔔 أرسل إشعاراً بهذا الخبر</label>
         <div class="adm-row">
           <button id="an-add" class="adm-btn">نشر الخبر</button>
           <button id="an-cancel" class="adm-btn sec" style="display:none">إلغاء</button>
@@ -429,6 +430,23 @@
         <input id="ab-link" class="adm-in" placeholder="رابط عند الضغط (اختياري)" style="width:100%;margin-bottom:8px" inputmode="url">
         <div class="adm-row"><button id="ab-add" class="adm-btn">إضافة البنر</button></div>
         <div id="adm-banners" style="margin-top:10px"></div>
+      </div>
+
+      <div class="adm-card">
+        <h3>🔔 إرسال إشعار</h3>
+        <input id="nt-title" class="adm-in" placeholder="عنوان الإشعار" style="width:100%;margin-bottom:8px">
+        <textarea id="nt-body" class="adm-in" placeholder="نص الإشعار" rows="2" style="width:100%;resize:vertical;margin-bottom:8px"></textarea>
+        <div class="adm-row">
+          <label style="font-size:12px;font-weight:700;color:var(--muted)">يفتح صفحة:</label>
+          <select id="nt-page" class="adm-in">
+            <option value="">— لا شيء —</option>
+            <option value="#matches-panel">المباريات</option>
+            <option value="#board-panel">الترتيب</option>
+            <option value="#news-panel">الأخبار</option>
+          </select>
+        </div>
+        <div class="adm-row"><button id="nt-send" class="adm-btn">إرسال للجميع</button></div>
+        <div id="nt-status" style="font-size:11.5px;font-weight:700;color:var(--muted);margin-top:6px"></div>
       </div>
     </div>
   </section>
@@ -454,6 +472,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
 /* ====== ① إعدادات Firebase — الصق قيم مشروعك هنا ====== */
 const firebaseConfig = {
@@ -466,6 +485,7 @@ const firebaseConfig = {
 };
 /* ====== ② رمز دخول لوحة الإدارة — غيّره ====== */
 const ADMIN_CODE = "YOVKXL15";
+const VAPID_KEY = "BE3D4uqXjEiu6jVw4hHaHH_5N3vzBPArCLKskQ1Op19G6DQK8zS2ERIvy1T4Nm3rQUsukVWU-mMdNyjmriuU8TI";
 
 const USE_FB = !!firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("PASTE");
 
@@ -578,6 +598,19 @@ function makeFirebaseStore(){
     onBanners(cb){ return onSnapshot(col('banners'), s => cb(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>(a.order||0)-(b.order||0)))); },
     async saveBanner(b){ const id=b.id||('b_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); const data={}; if(b.order!==undefined)data.order=b.order; if(b.img!==undefined)data.img=b.img; if(b.link!==undefined)data.link=b.link||''; await setDoc(doc(db,'banners',id), data, {merge:true}); return id; },
     async deleteBanner(id){ await deleteDoc(doc(db,'banners',id)); },
+    async setupPush(vapidKey, onForeground){
+      if(!('serviceWorker' in navigator) || !('Notification' in window)) return null;
+      const swReg = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+      let perm = Notification.permission;
+      if(perm === 'default') perm = await Notification.requestPermission();
+      if(perm !== 'granted') return null;
+      const messaging = getMessaging(app);
+      const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg });
+      if(token) await setDoc(doc(db,'fcmTokens',uid), { token, uid, updatedAt: Date.now() }, {merge:true});
+      if(onForeground) onMessage(messaging, onForeground);
+      return token;
+    },
+    async sendNotification(n){ const id='nt_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); await setDoc(doc(db,'notifications',id), { title:n.title, body:n.body||'', link:n.link||'', createdAt:Date.now(), sent:false }, {merge:true}); return id; },
     async upsertFixture(f){
       const id = f.id || ('fx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6));
       await setDoc(doc(db,'fixtures',id), stripId(f), {merge:true}); return id;
@@ -657,6 +690,8 @@ function makeLocalStore(){
     onBanners(cb){ (subs.banners=subs.banners||[]).push(cb); cb(getBanners()); return ()=>{}; },
     async saveBanner(b){ const all=load('saq_banners',{}); const id=b.id||('b_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); const cur=all[id]||{}; all[id]={order:b.order!==undefined?b.order:(cur.order||0), img:b.img!==undefined?b.img:cur.img, link:b.link!==undefined?(b.link||''):(cur.link||'')}; save('saq_banners',all); (subs.banners||[]).forEach(cb=>cb(getBanners())); return id; },
     async deleteBanner(id){ const all=load('saq_banners',{}); delete all[id]; save('saq_banners',all); (subs.banners||[]).forEach(cb=>cb(getBanners())); },
+    async setupPush(){ return null; },
+    async sendNotification(n){ alert('الإشعارات تعمل في وضع Firebase فقط'); return null; },
     async upsertFixture(f){ const all=load(K.fixtures,{}); const id=f.id||('fx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)); all[id]=stripId(f); save(K.fixtures,all); pushFx(); return id; },
     async deleteFixture(id){ const all=load(K.fixtures,{}); delete all[id]; save(K.fixtures,all); pushFx(); },
     async setResult(id,h,a){ const all=load(K.fixtures,{}); if(all[id]){ all[id].status='finished'; all[id].resultH=h; all[id].resultA=a; save(K.fixtures,all); } pushFx(); },
@@ -973,16 +1008,33 @@ function renderAdminNews(){
   });
 }
 function bindAdminNews(){
-  const clear = () => { editingNewsId=null; document.getElementById('an-title').value=''; document.getElementById('an-body').value=''; document.getElementById('an-add').textContent='نشر الخبر'; document.getElementById('an-cancel').style.display='none'; };
+  const clear = () => { editingNewsId=null; document.getElementById('an-title').value=''; document.getElementById('an-body').value=''; document.getElementById('an-notify').checked=false; document.getElementById('an-add').textContent='نشر الخبر'; document.getElementById('an-cancel').style.display='none'; };
   document.getElementById('an-add').onclick = async () => {
     const title = document.getElementById('an-title').value.trim();
     const body = document.getElementById('an-body').value.trim();
     if(!title){ alert('أدخل عنوان الخبر'); return; }
     const createdAt = editingNewsId ? (state.news.find(x=>x.id===editingNewsId)||{}).createdAt : Date.now();
+    const notify = document.getElementById('an-notify').checked && !editingNewsId;
     await store.saveNews({ id: editingNewsId, title, body, createdAt });
+    if(notify){ try{ await store.sendNotification({ title, body: (body||'').slice(0,140), link:'#news-panel' }); }catch(e){} }
     clear();
   };
   document.getElementById('an-cancel').onclick = clear;
+}
+function bindAdminNotify(){
+  document.getElementById('nt-send').onclick = async () => {
+    const title = document.getElementById('nt-title').value.trim();
+    const body = document.getElementById('nt-body').value.trim();
+    const link = document.getElementById('nt-page').value;
+    const st = document.getElementById('nt-status');
+    if(!title){ alert('أدخل عنوان الإشعار'); return; }
+    st.textContent = 'جارٍ الإضافة للطابور...';
+    try{
+      await store.sendNotification({ title, body, link });
+      document.getElementById('nt-title').value=''; document.getElementById('nt-body').value=''; document.getElementById('nt-page').value='';
+      st.textContent = '✔ أُضيف للطابور — يصل للأجهزة خلال دقائق (تُرسله المهمة الخلفية).';
+    }catch(e){ st.textContent = 'تعذّر الإرسال'; }
+  };
 }
 
 /* ============================================================
@@ -1139,7 +1191,7 @@ function bindAdmin(){
     }
   };
   document.getElementById('adm-unlock').onclick = unlock;
-  bindAdminNews(); bindAdminBanners();
+  bindAdminNews(); bindAdminBanners(); bindAdminNotify();
   document.getElementById('adm-code').addEventListener('keydown', e => { if(e.key==='Enter') unlock(); });
 
   document.getElementById('af-add').onclick = async () => {
@@ -1275,10 +1327,26 @@ store.onAuth(async (user) => {
     greet();
     if(sp) sp.classList.add('hide');
     startApp();
+    initPush();
+    openHash();
   } else {
     if(sp) sp.classList.remove('hide');
   }
 });
+function initPush(){
+  if(!USE_FB) return;
+  store.setupPush(VAPID_KEY, payload => {
+    const d = payload.data || payload.notification || {};
+    try{ if(Notification.permission==='granted') new Notification(d.title || 'إشعار جديد', { body: d.body || '', dir:'rtl', lang:'ar' }); }catch(e){}
+  }).catch(e => console.warn('push init', e));
+}
+function openHash(){
+  const id = (location.hash || '').slice(1);
+  if(!id) return;
+  const panel = document.getElementById(id); if(!panel) return;
+  const btn = document.querySelector(`.navbtn[data-tab="${id}"]`);
+  showPanel(id, btn);
+}
 
 </script>
 </body>

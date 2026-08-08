@@ -1,0 +1,9 @@
+{
+  "name": "fantasy-jobs",
+  "private": true,
+  "type": "module",
+  "description": "مهام خلفية: مزامنة المباريات + إرسال الإشعارات",
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}
