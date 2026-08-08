@@ -27,12 +27,12 @@ messaging.onBackgroundMessage(payload => {
 self.addEventListener('notificationclick', event => {
   event.notification.close();
   const link = (event.notification.data && event.notification.data.link) || '';
-  const base = 'https://imh8md.github.io/fantsyS/';
+  const base = self.registration.scope;   // نطاق التطبيق الحالي (أي دومين)
   const url = base + (link || '');
   event.waitUntil((async () => {
     const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const c of all) {
-      if (c.url.includes('/fantsyS/') && 'focus' in c) { try { await c.focus(); if (link) await c.navigate(url); } catch (e) {} return; }
+      if (c.url.startsWith(self.location.origin) && 'focus' in c) { try { await c.focus(); if (link) await c.navigate(url); } catch (e) {} return; }
     }
     if (clients.openWindow) return clients.openWindow(url);
   })());
