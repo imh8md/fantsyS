@@ -14,3 +14,7 @@ firebase.initializeApp({
 });
 
 firebase.messaging();   // يفعّل عرض إشعارات الخلفية تلقائياً
+
+// تفعيل النسخة الجديدة فوراً بدل انتظار إغلاق كل التبويبات
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
