@@ -43,9 +43,18 @@ async function main(){
       const chunk = tokenDocs.slice(i, i + 500);
       const res = await messaging.sendEachForMulticast({
         tokens: chunk.map(t => t.token),
-        data,
-        android: { priority: 'high' },
-        webpush: { headers: { Urgency: 'high', TTL: '86400' } }
+        data: { link: data.link || '' },
+        webpush: {
+          notification: {
+            title: data.title,
+            body: data.body,
+            icon: 'https://imh8md.github.io/fantsyS/icon-192.png',
+            dir: 'rtl',
+            lang: 'ar'
+          },
+          fcm_options: { link: 'https://imh8md.github.io/fantsyS/' + (data.link || '') },
+          headers: { Urgency: 'high', TTL: '86400' }
+        }
       });
       res.responses.forEach((r, idx) => {
         if (r.success) delivered++;
