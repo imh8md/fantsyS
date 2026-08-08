@@ -214,6 +214,14 @@
   .sdot.on{background:#fff;width:18px;border-radius:4px}
   .adm-banner-thumb{width:100%;border-radius:8px;display:block;margin-bottom:6px;aspect-ratio:1024/256;object-fit:cover;border:1px solid var(--line)}
   .adm-btn:disabled{opacity:.4;cursor:not-allowed}
+  /* double card */
+  .dbl-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;border:2px dashed var(--gold);background:rgba(200,145,47,.08);color:var(--gold);font-size:12.5px;font-weight:800;cursor:pointer;transition:.15s;user-select:none}
+  .dbl-toggle:hover{background:rgba(200,145,47,.16)}
+  .dbl-toggle .dbl-x{font-size:10.5px;font-weight:700;color:var(--muted)}
+  .dbl-toggle.on{background:var(--gold);border-style:solid;color:#fff}
+  .dbl-toggle.on .dbl-x{color:rgba(255,255,255,.85)}
+  .dbl-toggle.used{border-color:var(--line);border-style:solid;background:var(--card-2);color:var(--muted);cursor:default}
+  .dbl-chip{display:inline-block;background:var(--gold);color:#fff;font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:999px;margin-inline-start:4px}
   .head-inner .score-chip{margin-inline-start:10px}
 
   .banner{background:rgba(107,148,196,.12);border:1px solid rgba(107,148,196,.4);color:var(--text);border-radius:12px;padding:10px 13px;font-size:12px;font-weight:700;margin:0 0 14px;line-height:1.6}
@@ -550,7 +558,8 @@ function predPoints(pred, fx){
   let pts = base;
   if(fx.big) pts *= 2;                                       // ×٢ للقمم
   if(base>0 && pred.createdAt && pred.createdAt <= fx.kickoff-DAY) pts += 1; // +١ توقّع مبكّر
-  return { pts, base, exactHit, act };
+  if(pred.double) pts *= 2;                                   // 🔥 كرت الدبل ×٢
+  return { pts, base, exactHit, act, doubled: !!pred.double };
 }
 
 /* ===== تجميع نقاط كل اللاعبين (لإعادة الاحتساب والترتيب) ===== */
@@ -745,6 +754,43 @@ function fixturesForView(){
 
 function outcomeLabel(fx, out){ return out==='h' ? `فوز ${fx.h}` : out==='d' ? 'تعادل' : `فوز ${fx.a}`; }
 
+/* ===== كرت الدبل (لمرة واحدة) ===== */
+function doubleState(){
+  let spent = false, activeMatchId = null;
+  for(const p of Object.values(state.preds)){
+    if(p.double){
+      const fx = state.fixtures.find(f => f.id===p.fixtureId);
+      if(fx && isLocked(fx)) spent = true;
+      else activeMatchId = p.fixtureId;
+    }
+  }
+  return { spent, activeMatchId };
+}
+function doubleToggleHtml(fx, p){
+  if(p.double) return `<div class="dbl-toggle on" data-dbl="${fx.id}"><span>🔥 الدبل مُفعّل — نقاط ×٢</span><span class="dbl-x">إلغاء</span></div>`;
+  const ds = doubleState();
+  if(ds.spent) return `<div class="dbl-toggle used"><span>🔒 استخدمت كرت الدبل</span></div>`;
+  if(ds.activeMatchId) return `<div class="dbl-toggle" data-dbl="${fx.id}"><span>⚡ فعّل الدبل هنا</span><span class="dbl-x">سيُنقل من مباراتك الأخرى</span></div>`;
+  return `<div class="dbl-toggle" data-dbl="${fx.id}"><span>⚡ فعّل كرت الدبل ×٢</span><span class="dbl-x">لمرة واحدة</span></div>`;
+}
+function toggleDouble(matchId){
+  const p = state.preds[matchId];
+  if(!p || !p.out) return;
+  const keep = pp => ({ ...pp, uid:state.uid, name:state.name, createdAt: pp.createdAt || Date.now() });
+  if(p.double){
+    const np = keep({ ...p, double:false }); state.preds[matchId]=np; store.savePrediction(np);
+  } else {
+    const ds = doubleState();
+    if(ds.spent){ alert('استخدمت كرت الدبل على مباراة بدأت — لا يمكن نقله.'); return; }
+    if(ds.activeMatchId && ds.activeMatchId!==matchId){
+      const op = state.preds[ds.activeMatchId];
+      if(op){ const nop = keep({ ...op, double:false }); state.preds[ds.activeMatchId]=nop; store.savePrediction(nop); }
+    }
+    const np = keep({ ...p, double:true }); state.preds[matchId]=np; store.savePrediction(np);
+  }
+  renderMatches(); renderMine();
+}
+
 function matchCard(fx){
   const p = state.preds[fx.id] || {out:null, exact:false, h:0, a:0};
   const locked = isLocked(fx);
@@ -782,6 +828,7 @@ function matchCard(fx){
       </div>
       <div class="exact-warn">النتيجة الدقيقة ما تطابق اختيارك (فوز/تعادل/خسارة)</div>
     </div>
+    ${p.out ? doubleToggleHtml(fx, p) : ''}
     <div class="match-foot">
       <span class="save-status ${p.out?'on':''}">${p.out?'✓ توقّعك محفوظ':'اختر توقّعك للحفظ التلقائي'}</span>
       <span class="odds-hint">${fx.big?'×٢ نقاط':'نقاط عادية'}</span>
@@ -871,6 +918,8 @@ function bindMatchEvents(){
       let v = (p[side]||0) + Number(delta); if(v<0) v=0; if(v>19) v=19; p[side]=v;
       if(p.out) persist(); else { state.preds[fx.id]={...p, uid:state.uid, name:state.name}; renderMatches(); }
     });
+    const dbl = card.querySelector('[data-dbl]');
+    if(dbl) dbl.onclick = () => toggleDouble(fx.id);
     if(p.exact && p.out && !exactMatchesOutcome(p)){
       const w = card.querySelector('.exact-warn'); if(w) w.classList.add('show');
     }
@@ -910,7 +959,7 @@ function renderMine(){
       foot = `<div class="lockmsg">${isLocked(fx)?'أُقفلت · بانتظار النتيجة':'قابلة للتعديل حتى بداية المباراة'}</div>`;
     }
     return `<div class="match locked">
-      <div class="match-head"><span>${LG_NAMES[p.lg]} · ${fx.round||''}</span><span class="status"><span class="dot ${fin?'done':''}"></span> ${fin?'انتهت':whenLabel(fx.kickoff)}</span></div>
+      <div class="match-head"><span>${LG_NAMES[p.lg]} · ${fx.round||''}${p.double?' <span class="dbl-chip">🔥 دبل ×٢</span>':''}</span><span class="status"><span class="dot ${fin?'done':''}"></span> ${fin?'انتهت':whenLabel(fx.kickoff)}</span></div>
       <div class="teams">
         <div class="team"><div class="crest">${fx.hc||'⚽'}</div><div class="tn">${fx.h}</div></div>
         <div style="text-align:center">${center}</div>
